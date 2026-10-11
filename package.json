@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "@mollie/api-client": "^4.6.0",
+    "better-sqlite3": "^13.0.3"
+  }
+}
