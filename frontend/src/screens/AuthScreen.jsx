@@ -1,3 +1,4 @@
+
 import React, { useState } from "react";
 
 import {
@@ -14,26 +15,13 @@ export default function AuthScreen({
   lockedRole,
   roleConflictError,
 }) {
-  const [isSignup, setIsSignup] =
-    useState(false);
-
-  const [role, setRole] =
-    useState("user");
-
-  const [email, setEmail] =
-    useState("");
-
-  const [password, setPassword] =
-    useState("");
-
-  const [name, setName] =
-    useState("");
-
-  const [error, setError] =
-    useState("");
-
-  const [loading, setLoading] =
-    useState(false);
+  const [isSignup, setIsSignup] = useState(false);
+  const [role, setRole] = useState("user");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [name, setName] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
   /* =========================================================
      FIREBASE ERROR HELPER
@@ -59,7 +47,10 @@ export default function AuthScreen({
         "An account already exists with this email.",
 
       "auth/weak-password":
-        "Password should contain at least 6 characters.",
+        "Password does not meet the required security policy.",
+
+      "auth/operation-not-allowed":
+        "This sign-in method is not enabled in Firebase.",
 
       "auth/popup-closed-by-user":
         "Google sign-in was cancelled.",
@@ -72,6 +63,9 @@ export default function AuthScreen({
 
       "auth/too-many-requests":
         "Too many attempts. Please wait a moment and try again.",
+
+      "auth/account-exists-with-different-credential":
+        "An account already exists with this email using another sign-in method.",
     };
 
     if (messages[code]) {
@@ -88,6 +82,35 @@ export default function AuthScreen({
   };
 
   /* =========================================================
+     STRONG PASSWORD VALIDATION
+     Applied to new email/password registrations.
+  ========================================================= */
+
+  const validatePassword = (value) => {
+    if (value.length < 8) {
+      return "Password must contain at least 8 characters.";
+    }
+
+    if (!/[A-Z]/.test(value)) {
+      return "Include at least one uppercase letter (A-Z).";
+    }
+
+    if (!/[a-z]/.test(value)) {
+      return "Include at least one lowercase letter (a-z).";
+    }
+
+    if (!/[0-9]/.test(value)) {
+      return "Include at least one number (0-9).";
+    }
+
+    if (!/[^A-Za-z0-9]/.test(value)) {
+      return "Include at least one special character, such as @, #, or $.";
+    }
+
+    return "";
+  };
+
+  /* =========================================================
      SEND FIREBASE USER TO APP.JSX
   ========================================================= */
 
@@ -96,17 +119,6 @@ export default function AuthScreen({
     selectedRole,
     displayName = null
   ) => {
-    /*
-     * IMPORTANT
-     *
-     * Firebase gives us the real permanent UID:
-     *
-     * firebaseUser.uid
-     *
-     * This UID is what App.jsx uses to find/save
-     * the user's vehicle in SQLite.
-     */
-
     if (!firebaseUser?.uid) {
       throw new Error(
         "Firebase did not return a valid account ID."
@@ -121,16 +133,9 @@ export default function AuthScreen({
 
     const session = {
       email: firebaseUser.email,
-
       role: selectedRole,
-
-      /*
-       * Keep both names for compatibility.
-       */
       uid: firebaseUser.uid,
-
       firebaseUid: firebaseUser.uid,
-
       displayName:
         displayName ||
         firebaseUser.displayName ||
@@ -138,35 +143,14 @@ export default function AuthScreen({
     };
 
     console.log(
-      "=========================================="
+      "TrustCharge Firebase authentication successful",
+      {
+        email: session.email,
+        role: session.role,
+        firebaseUid: session.firebaseUid,
+      }
     );
 
-    console.log(
-      "TrustCharge Firebase authentication successful"
-    );
-
-    console.log(
-      "Email:",
-      session.email
-    );
-
-    console.log(
-      "Role:",
-      session.role
-    );
-
-    console.log(
-      "Firebase UID:",
-      session.firebaseUid
-    );
-
-    console.log(
-      "=========================================="
-    );
-
-    /*
-     * Send complete Firebase identity to App.jsx.
-     */
     onAuthSuccess(session);
   };
 
@@ -176,52 +160,41 @@ export default function AuthScreen({
 
   const handleEmailAuth = async (e) => {
     e.preventDefault();
-
     setError("");
 
-    /*
-     * If App.jsx has locked this browser session
-     * to another role, prevent switching roles.
-     */
-    if (
-      lockedRole &&
-      lockedRole !== role
-    ) {
+    if (lockedRole && lockedRole !== role) {
       setError(
         `This session is locked to ${lockedRole.toUpperCase()} access.`
       );
-
       return;
     }
 
-    const cleanEmail =
-      email.trim().toLowerCase();
+    const cleanEmail = email.trim().toLowerCase();
 
     if (!cleanEmail) {
-      setError(
-        "Please enter your email address."
-      );
-
+      setError("Please enter your email address.");
       return;
     }
 
     if (!password) {
-      setError(
-        "Please enter your password."
-      );
-
+      setError("Please enter your password.");
       return;
     }
 
-    if (
-      isSignup &&
-      !name.trim()
-    ) {
-      setError(
-        "Please enter your full name."
-      );
-
+    if (isSignup && !name.trim()) {
+      setError("Please enter your full name.");
       return;
+    }
+
+    // Enforce strong passwords during signup only.
+    // Existing accounts can still use their current passwords.
+    if (isSignup) {
+      const passwordError = validatePassword(password);
+
+      if (passwordError) {
+        setError(passwordError);
+        return;
+      }
     }
 
     setLoading(true);
@@ -229,51 +202,29 @@ export default function AuthScreen({
     try {
       let result;
 
-      /* =====================================================
-         SIGN UP
-      ===================================================== */
-
       if (isSignup) {
-        result =
-          await createUserWithEmailAndPassword(
-            auth,
-            cleanEmail,
-            password
-          );
+        result = await createUserWithEmailAndPassword(
+          auth,
+          cleanEmail,
+          password
+        );
+      } else {
+        result = await signInWithEmailAndPassword(
+          auth,
+          cleanEmail,
+          password
+        );
       }
 
-      /* =====================================================
-         LOGIN
-      ===================================================== */
-
-      else {
-        result =
-          await signInWithEmailAndPassword(
-            auth,
-            cleanEmail,
-            password
-          );
-      }
-
-      /*
-       * REAL FIREBASE USER
-       */
-      const firebaseUser =
-        result?.user;
+      const firebaseUser = result?.user;
 
       if (!firebaseUser?.uid) {
         setError(
-          "Firebase authentication succeeded, but no account ID was returned."
+          "Authentication succeeded, but no account ID was returned."
         );
-
         return;
       }
 
-      /*
-       * COMPLETE SESSION
-       *
-       * This is the critical fix.
-       */
       completeAuthentication(
         firebaseUser,
         role,
@@ -287,9 +238,7 @@ export default function AuthScreen({
         err
       );
 
-      setError(
-        getFirebaseError(err)
-      );
+      setError(getFirebaseError(err));
     } finally {
       setLoading(false);
     }
@@ -299,64 +248,49 @@ export default function AuthScreen({
      GOOGLE LOGIN
   ========================================================= */
 
-  const handleGoogleAuth =
-    async () => {
-      setError("");
+  const handleGoogleAuth = async () => {
+    setError("");
 
-      if (
-        lockedRole &&
-        lockedRole !== role
-      ) {
+    if (lockedRole && lockedRole !== role) {
+      setError(
+        `This session is locked to ${lockedRole.toUpperCase()} access.`
+      );
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      const result = await signInWithPopup(
+        auth,
+        googleProvider
+      );
+
+      const firebaseUser = result?.user;
+
+      if (!firebaseUser?.uid) {
         setError(
-          `This session is locked to ${lockedRole.toUpperCase()} access.`
+          "Google authentication succeeded, but no account ID was returned."
         );
-
         return;
       }
 
-      setLoading(true);
+      completeAuthentication(
+        firebaseUser,
+        role,
+        firebaseUser.displayName
+      );
+    } catch (err) {
+      console.error(
+        "TrustCharge Google authentication error:",
+        err
+      );
 
-      try {
-        const result =
-          await signInWithPopup(
-            auth,
-            googleProvider
-          );
-
-        const firebaseUser =
-          result?.user;
-
-        if (!firebaseUser?.uid) {
-          setError(
-            "Google authentication succeeded, but Firebase did not return an account ID."
-          );
-
-          return;
-        }
-
-        /*
-         * IMPORTANT:
-         *
-         * Google login also sends the REAL Firebase UID.
-         */
-        completeAuthentication(
-          firebaseUser,
-          role,
-          firebaseUser.displayName
-        );
-      } catch (err) {
-        console.error(
-          "TrustCharge Google authentication error:",
-          err
-        );
-
-        setError(
-          getFirebaseError(err)
-        );
-      } finally {
-        setLoading(false);
-      }
-    };
+      setError(getFirebaseError(err));
+    } finally {
+      setLoading(false);
+    }
+  };
 
   /* =========================================================
      SWITCH LOGIN / SIGNUP
@@ -366,10 +300,39 @@ export default function AuthScreen({
     setError("");
     setPassword("");
 
-    setIsSignup(
-      (current) => !current
-    );
+    setIsSignup((current) => !current);
   };
+
+  /* =========================================================
+     LIVE PASSWORD REQUIREMENT STATUS
+  ========================================================= */
+
+  const passwordRules = [
+    {
+      label: "At least 8 characters",
+      valid: password.length >= 8,
+    },
+    {
+      label: "One uppercase letter (A-Z)",
+      valid: /[A-Z]/.test(password),
+    },
+    {
+      label: "One lowercase letter (a-z)",
+      valid: /[a-z]/.test(password),
+    },
+    {
+      label: "One number (0-9)",
+      valid: /[0-9]/.test(password),
+    },
+    {
+      label: "One special character (@, #, $...)",
+      valid: /[^A-Za-z0-9]/.test(password),
+    },
+  ];
+
+  const passwordIsStrong = passwordRules.every(
+    (rule) => rule.valid
+  );
 
   /* =========================================================
      UI
@@ -378,10 +341,7 @@ export default function AuthScreen({
   return (
     <div style={styles.container}>
       <div style={styles.card}>
-
-        {/* =================================================
-            BRAND
-        ================================================= */}
+        {/* BRAND */}
 
         <div style={styles.brandRow}>
           <div style={styles.coreBadge}>
@@ -398,24 +358,16 @@ export default function AuthScreen({
 
           <h2 style={styles.brandText}>
             Trust
-            <span
-              style={{
-                color: "#D97706",
-              }}
-            >
+            <span style={{ color: "#D97706" }}>
               Charge
             </span>
           </h2>
         </div>
 
-        {/* =================================================
-            TITLE
-        ================================================= */}
+        {/* TITLE */}
 
         <h1 style={styles.title}>
-          {isSignup
-            ? "Create Account"
-            : "Welcome Back"}
+          {isSignup ? "Create Account" : "Welcome Back"}
         </h1>
 
         <p style={styles.subtitle}>
@@ -424,29 +376,23 @@ export default function AuthScreen({
             : "Log in to access your EV network"}
         </p>
 
-        {/* =================================================
-            ROLE SELECTOR
-        ================================================= */}
+        {/* ROLE SELECTOR */}
 
         <div style={styles.roleTabs}>
           <button
             type="button"
             disabled={loading}
-            onClick={() =>
-              setRole("user")
-            }
+            onClick={() => {
+              setRole("user");
+              setError("");
+            }}
             style={{
               ...styles.roleTab,
               backgroundColor:
-                role === "user"
-                  ? "#D97706"
-                  : "transparent",
+                role === "user" ? "#D97706" : "transparent",
               color:
-                role === "user"
-                  ? "#FFFFFF"
-                  : "#78716C",
-              opacity:
-                loading ? 0.6 : 1,
+                role === "user" ? "#FFFFFF" : "#78716C",
+              opacity: loading ? 0.6 : 1,
             }}
           >
             EV User
@@ -455,236 +401,222 @@ export default function AuthScreen({
           <button
             type="button"
             disabled={loading}
-            onClick={() =>
-              setRole("admin")
-            }
+            onClick={() => {
+              setRole("admin");
+              setError("");
+            }}
             style={{
               ...styles.roleTab,
               backgroundColor:
-                role === "admin"
-                  ? "#D97706"
-                  : "transparent",
+                role === "admin" ? "#D97706" : "transparent",
               color:
-                role === "admin"
-                  ? "#FFFFFF"
-                  : "#78716C",
-              opacity:
-                loading ? 0.6 : 1,
+                role === "admin" ? "#FFFFFF" : "#78716C",
+              opacity: loading ? 0.6 : 1,
             }}
           >
             Station Admin
           </button>
         </div>
 
-        {/* =================================================
-            ROLE ERROR FROM APP
-        ================================================= */}
+        {/* ROLE ERROR */}
 
         {roleConflictError && (
-          <div
-            style={styles.errorBox}
-          >
+          <div style={styles.errorBox} role="alert">
             {roleConflictError}
           </div>
         )}
 
-        {/* =================================================
-            LOCAL AUTH ERROR
-        ================================================= */}
+        {/* AUTH ERROR */}
 
         {error && (
-          <div
-            style={styles.errorBox}
-          >
+          <div style={styles.errorBox} role="alert">
             {error}
           </div>
         )}
 
-        {/* =================================================
-            FORM
-        ================================================= */}
+        {/* FORM */}
 
-        <form
-          onSubmit={
-            handleEmailAuth
-          }
-          style={styles.form}
-        >
+        <form onSubmit={handleEmailAuth} style={styles.form}>
           {/* FULL NAME */}
+
           {isSignup && (
-            <div
-              style={styles.inputGroup}
-            >
-              <label
-                style={styles.label}
-              >
+            <div style={styles.inputGroup}>
+              <label style={styles.label} htmlFor="full-name">
                 Full Name
               </label>
 
               <input
+                id="full-name"
                 type="text"
                 placeholder="Enter your name"
                 value={name}
-                onChange={(e) =>
-                  setName(
-                    e.target.value
-                  )
-                }
+                onChange={(e) => setName(e.target.value)}
                 required
                 disabled={loading}
                 autoComplete="name"
                 style={{
                   ...styles.input,
-                  opacity:
-                    loading ? 0.7 : 1,
+                  opacity: loading ? 0.7 : 1,
                 }}
               />
             </div>
           )}
 
           {/* EMAIL */}
-          <div
-            style={styles.inputGroup}
-          >
-            <label
-              style={styles.label}
-            >
+
+          <div style={styles.inputGroup}>
+            <label style={styles.label} htmlFor="email">
               Email Address
             </label>
 
             <input
+              id="email"
               type="email"
               placeholder="name@example.com"
               value={email}
-              onChange={(e) =>
-                setEmail(
-                  e.target.value
-                )
-              }
+              onChange={(e) => setEmail(e.target.value)}
               required
               disabled={loading}
               autoComplete="email"
               style={{
                 ...styles.input,
-                opacity:
-                  loading ? 0.7 : 1,
+                opacity: loading ? 0.7 : 1,
               }}
             />
           </div>
 
           {/* PASSWORD */}
-          <div
-            style={styles.inputGroup}
-          >
-            <label
-              style={styles.label}
-            >
+
+          <div style={styles.inputGroup}>
+            <label style={styles.label} htmlFor="password">
               Password
             </label>
 
             <input
+              id="password"
               type="password"
-              placeholder="••••••••"
-              value={password}
-              onChange={(e) =>
-                setPassword(
-                  e.target.value
-                )
+              placeholder={
+                isSignup
+                  ? "Create a strong password"
+                  : "Enter your password"
               }
+              value={password}
+              onChange={(e) => {
+                setPassword(e.target.value);
+                if (error) setError("");
+              }}
               required
               disabled={loading}
               autoComplete={
-                isSignup
-                  ? "new-password"
-                  : "current-password"
+                isSignup ? "new-password" : "current-password"
               }
+              minLength={isSignup ? 8 : undefined}
               style={{
                 ...styles.input,
-                opacity:
-                  loading ? 0.7 : 1,
+                opacity: loading ? 0.7 : 1,
               }}
             />
+
+            {/* LIVE PASSWORD REQUIREMENTS */}
+
+            {isSignup && (
+              <div style={styles.passwordRequirements}>
+                <p style={styles.passwordHint}>
+                  Your password must contain:
+                </p>
+
+                {passwordRules.map((rule) => (
+                  <div
+                    key={rule.label}
+                    style={styles.passwordRule}
+                  >
+                    <span
+                      aria-hidden="true"
+                      style={{
+                        ...styles.ruleIcon,
+                        color: rule.valid
+                          ? "#15803D"
+                          : "#A8A29E",
+                      }}
+                    >
+                      {rule.valid ? "✓" : "○"}
+                    </span>
+
+                    <span
+                      style={{
+                        color: rule.valid
+                          ? "#15803D"
+                          : "#78716C",
+                      }}
+                    >
+                      {rule.label}
+                    </span>
+                  </div>
+                ))}
+
+                {password.length > 0 && (
+                  <p
+                    style={{
+                      ...styles.passwordStatus,
+                      color: passwordIsStrong
+                        ? "#15803D"
+                        : "#B45309",
+                    }}
+                  >
+                    {passwordIsStrong
+                      ? "Strong password requirements satisfied"
+                      : "Please complete all requirements"}
+                  </p>
+                )}
+              </div>
+            )}
           </div>
 
           {/* SUBMIT */}
+
           <button
             type="submit"
             disabled={loading}
             style={{
               ...styles.submitButton,
-              opacity:
-                loading ? 0.75 : 1,
-              cursor:
-                loading
-                  ? "not-allowed"
-                  : "pointer",
+              opacity: loading ? 0.75 : 1,
+              cursor: loading ? "not-allowed" : "pointer",
             }}
           >
             {loading
               ? "Authenticating..."
               : isSignup
-              ? `Sign Up as ${
-                  role === "admin"
-                    ? "Admin"
-                    : "User"
-                }`
+              ? `Sign Up as ${role === "admin" ? "Admin" : "User"}`
               : "Log In"}
           </button>
         </form>
 
-        {/* =================================================
-            DIVIDER
-        ================================================= */}
+        {/* DIVIDER */}
 
-        <div
-          style={styles.divider}
-        >
-          <span
-            style={
-              styles.dividerLine
-            }
-          />
+        <div style={styles.divider}>
+          <span style={styles.dividerLine} />
 
-          <span
-            style={
-              styles.dividerText
-            }
-          >
+          <span style={styles.dividerText}>
             or continue with
           </span>
 
-          <span
-            style={
-              styles.dividerLine
-            }
-          />
+          <span style={styles.dividerLine} />
         </div>
 
-        {/* =================================================
-            GOOGLE
-        ================================================= */}
+        {/* GOOGLE */}
 
         <button
           type="button"
-          onClick={
-            handleGoogleAuth
-          }
+          onClick={handleGoogleAuth}
           disabled={loading}
           style={{
             ...styles.googleButton,
-            opacity:
-              loading ? 0.7 : 1,
-            cursor:
-              loading
-                ? "not-allowed"
-                : "pointer",
+            opacity: loading ? 0.7 : 1,
+            cursor: loading ? "not-allowed" : "pointer",
           }}
         >
           <svg
-            style={{
-              width: "18px",
-              height: "18px",
-            }}
+            style={{ width: "18px", height: "18px" }}
             viewBox="0 0 24 24"
             aria-hidden="true"
           >
@@ -712,20 +644,10 @@ export default function AuthScreen({
           Continue with Google
         </button>
 
-        {/* =================================================
-            SWITCH
-        ================================================= */}
+        {/* SWITCH LOGIN / SIGNUP */}
 
-        <div
-          style={
-            styles.switchContainer
-          }
-        >
-          <p
-            style={
-              styles.switchText
-            }
-          >
+        <div style={styles.switchContainer}>
+          <p style={styles.switchText}>
             {isSignup
               ? "Already have an account?"
               : "Don't have an account?"}
@@ -733,19 +655,14 @@ export default function AuthScreen({
 
           <button
             type="button"
-            onClick={
-              toggleAuthMode
-            }
+            onClick={toggleAuthMode}
             disabled={loading}
             style={{
               ...styles.switchButton,
-              opacity:
-                loading ? 0.6 : 1,
+              opacity: loading ? 0.6 : 1,
             }}
           >
-            {isSignup
-              ? "Log In"
-              : "Sign Up"}
+            {isSignup ? "Log In" : "Sign Up"}
           </button>
         </div>
       </div>
@@ -759,7 +676,7 @@ export default function AuthScreen({
 
 const styles = {
   container: {
-    width: "100vw",
+    width: "100%",
     minHeight: "100dvh",
     backgroundColor: "#FBF8F3",
     display: "flex",
@@ -774,18 +691,13 @@ const styles = {
   card: {
     width: "100%",
     maxWidth: "420px",
-    backgroundColor:
-      "rgba(255, 255, 255, 0.95)",
-    backdropFilter:
-      "blur(16px)",
-    WebkitBackdropFilter:
-      "blur(16px)",
+    backgroundColor: "rgba(255, 255, 255, 0.95)",
+    backdropFilter: "blur(16px)",
+    WebkitBackdropFilter: "blur(16px)",
     borderRadius: "28px",
     padding: "32px 24px",
-    boxShadow:
-      "0 20px 40px rgba(120,70,10,0.08)",
-    border:
-      "1px solid rgba(245,158,11,0.2)",
+    boxShadow: "0 20px 40px rgba(120,70,10,0.08)",
+    border: "1px solid rgba(245,158,11,0.2)",
     boxSizing: "border-box",
   },
 
@@ -803,10 +715,9 @@ const styles = {
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    background:
-      "linear-gradient(135deg, #F59E0B, #D97706)",
-    boxShadow:
-      "0 4px 12px rgba(217,119,6,0.3)",
+    background: "linear-gradient(135deg, #F59E0B, #D97706)",
+    boxShadow: "0 4px 12px rgba(217,119,6,0.3)",
+    flexShrink: 0,
   },
 
   brandText: {
@@ -847,8 +758,7 @@ const styles = {
     fontWeight: "700",
     fontSize: "13px",
     cursor: "pointer",
-    transition:
-      "all 0.2s ease",
+    transition: "all 0.2s ease",
   },
 
   errorBox: {
@@ -859,8 +769,7 @@ const styles = {
     fontSize: "12px",
     lineHeight: "1.5",
     marginBottom: "16px",
-    border:
-      "1px solid #FCA5A5",
+    border: "1px solid #FCA5A5",
   },
 
   form: {
@@ -885,16 +794,49 @@ const styles = {
   input: {
     padding: "12px 14px",
     borderRadius: "12px",
-    border:
-      "1px solid #E7E5E4",
+    border: "1px solid #E7E5E4",
     backgroundColor: "#FAFAF9",
     fontSize: "14px",
     color: "#1C1917",
     outline: "none",
-    transition:
-      "border-color 0.2s",
+    transition: "border-color 0.2s",
     boxSizing: "border-box",
     width: "100%",
+  },
+
+  passwordRequirements: {
+    backgroundColor: "#FAFAF9",
+    border: "1px solid #E7E5E4",
+    borderRadius: "10px",
+    padding: "10px 12px",
+    marginTop: "4px",
+  },
+
+  passwordHint: {
+    fontSize: "11px",
+    fontWeight: "700",
+    color: "#57534E",
+    margin: "0 0 7px 0",
+  },
+
+  passwordRule: {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    fontSize: "11px",
+    lineHeight: "1.8",
+  },
+
+  ruleIcon: {
+    width: "14px",
+    flexShrink: 0,
+    fontWeight: "800",
+  },
+
+  passwordStatus: {
+    fontSize: "11px",
+    fontWeight: "700",
+    margin: "8px 0 0 0",
   },
 
   submitButton: {
@@ -907,10 +849,8 @@ const styles = {
     borderRadius: "12px",
     border: "none",
     cursor: "pointer",
-    boxShadow:
-      "0 6px 16px rgba(217,119,6,0.25)",
-    transition:
-      "all 0.2s ease",
+    boxShadow: "0 6px 16px rgba(217,119,6,0.25)",
+    transition: "all 0.2s ease",
   },
 
   divider: {
@@ -941,17 +881,14 @@ const styles = {
     fontSize: "13px",
     padding: "12px",
     borderRadius: "12px",
-    border:
-      "1px solid #E7E5E4",
+    border: "1px solid #E7E5E4",
     cursor: "pointer",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
     gap: "10px",
-    boxShadow:
-      "0 2px 8px rgba(0,0,0,0.04)",
-    transition:
-      "background-color 0.2s",
+    boxShadow: "0 2px 8px rgba(0,0,0,0.04)",
+    transition: "background-color 0.2s",
   },
 
   switchContainer: {
@@ -960,6 +897,7 @@ const styles = {
     justifyContent: "center",
     gap: "6px",
     marginTop: "20px",
+    flexWrap: "wrap",
   },
 
   switchText: {
