@@ -19,3 +19,9 @@ coverage/
 *.db
 *.sqlite
 *.sqlite3
+
+# SQLite temporary files
+backend/data/*.db-shm
+backend/data/*.db-wal
+
+frontend/src/firebase.js
